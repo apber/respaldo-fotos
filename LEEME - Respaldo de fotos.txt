@@ -1,0 +1,194 @@
+﻿RESPALDO DE FOTOS Y VIDEOS: TELÉFONO -> ONEDRIVE -> DISCO EXTERNO
+==================================================================
+
+Este documento explica cómo funcionan y cómo se usan los scripts de respaldo.
+
+
+1. QUÉ HACE
+-----------
+Las fotos y videos del teléfono (Android) se suben a OneDrive con la
+"carga de cámara" de la app. Después, en el PC (Windows), el script las
+copia desde OneDrive a un disco externo, ordenadas en carpetas por año
+y mes:
+
+    Fotos\2026\10\IMG_20261005_143022.jpg
+    Fotos\2026\09\PXL_20260921_090011.mp4
+
+Si tú lo indicas, después borra de OneDrive lo que quedó bien respaldado.
+El script nunca borra nada del teléfono.
+
+
+2. LOS ARCHIVOS
+---------------
+  respaldar-fotos.ps1   El script que hace todo el trabajo (PowerShell).
+  Respaldar fotos.bat   El lanzador: se ejecuta con doble clic y abre
+                        el script.
+
+Los dos tienen que estar en la MISMA carpeta del PC.
+
+¿Por qué dos archivos? Por seguridad, Windows no ejecuta un .ps1 con
+doble clic: lo abre en el Bloc de notas, y además bloquea los scripts
+descargados. El .bat le pide a PowerShell que ejecute el script solo
+esa vez, sin cambiar la configuración de seguridad del PC.
+
+
+3. CONFIGURACIÓN (UNA SOLA VEZ)
+-------------------------------
+1) En la app de OneDrive del teléfono:
+   Yo -> Configuración -> Carga de cámara.
+   Actívala, incluye los videos y, si quieres, marca "solo con Wi-Fi".
+
+2) En el PC, guarda los dos archivos juntos en una carpeta, por ejemplo
+   en Documentos.
+
+No hace falta editar el script. El disco se elige de una lista cada vez
+que se ejecuta.
+
+(Opcional) Si quieres que la carpeta del disco se llame distinto de
+"Fotos", abre el .ps1 con el Bloc de notas y cambia esta línea:
+    $CarpetaEnDisco = "Fotos"
+
+
+4. USO (CADA VEZ QUE RESPALDES)
+-------------------------------
+1) En el teléfono, deja que OneDrive termine de subir las fotos.
+
+2) Conecta el disco externo al PC.
+
+3) Haz doble clic en "Respaldar fotos.bat".
+
+4) El script muestra los discos disponibles, por ejemplo:
+
+     [1] E:  MiDisco  (USB)  932 GB, 410 GB libres  <- ya tiene la carpeta Fotos
+     [2] D:  Datos  (interno)  465 GB, 200 GB libres
+
+   Escribe el número del disco y presiona Enter. Si solo presionas
+   Enter, se elige el 1. Los discos USB aparecen primero, y se marca el
+   que ya tiene la carpeta Fotos. El disco del sistema (C:) no aparece.
+
+5) El script muestra cuántos archivos encontró en OneDrive y cuánto
+   pesan, y revisa que haya espacio suficiente en el disco.
+
+6) Pregunta: "¿Continuar con el respaldo? (S/N)"
+   Escribe S para seguir; cualquier otra respuesta cancela.
+
+7) Pregunta: "Borrar de OneDrive (S/N, por defecto N)"
+   S          -> copia y luego borra de OneDrive lo que quedó respaldado.
+   N o Enter  -> solo copia; OneDrive queda intacto.
+
+8) Muestra una barra de progreso y, al final, un resumen en pantalla.
+   Presiona Enter para cerrar la ventana.
+
+9) Cuando hayas confirmado que las fotos están en el disco, puedes
+   borrarlas del teléfono si quieres (eso lo haces tú).
+
+
+5. CÓMO FUNCIONA POR DENTRO
+---------------------------
+a) Origen: la app de OneDrive guarda su ruta en una variable de Windows
+   (%OneDrive%). El script la usa para encontrar la carpeta de carga de
+   cámara ("Álbum de cámara" o "Camera Roll").
+
+b) Fecha: el script usa la fecha que viene en el nombre del archivo
+   (los nombres de Android suelen traerla, por ejemplo IMG_20261005_...).
+   Si el nombre no tiene fecha, usa la fecha de modificación del archivo.
+
+c) Verificación con huella SHA-256: la huella es un código de 64
+   caracteres que se calcula a partir del contenido completo del
+   archivo. Si el archivo cambia aunque sea en un bit, la huella cambia
+   por completo. El script calcula la huella del original y la de la
+   copia, y solo da la copia por buena si coinciden. La huella no se
+   guarda en ninguna parte (ni en el nombre ni en el archivo): se
+   calcula en el momento y se descarta.
+
+d) Duplicados:
+   - Si en el disco ya existe un archivo con el mismo nombre y el mismo
+     contenido, no se vuelve a copiar (cuenta como "ya estaba").
+   - Si el nombre coincide pero el contenido es distinto, la copia nueva
+     se guarda con un sufijo: IMG_..._1.jpg, IMG_..._2.jpg, etc.
+
+e) Borrado (solo si respondiste S): se borran de OneDrive únicamente los
+   archivos de ESA ejecución que quedaron verificados en el disco, ya sea
+   porque se acaban de copiar o porque ya estaban ahí idénticos. Nunca
+   se borran:
+   - los archivos que dieron error,
+   - las fotos que lleguen mientras el script está corriendo,
+   - nada fuera de la carpeta de carga de cámara.
+   Lo borrado queda 30 días en la papelera de OneDrive.
+
+f) Si un archivo falla, el script sigue con los demás. El que falló
+   queda en OneDrive y se anota en el registro.
+
+
+6. EL REGISTRO (registro.txt)
+-----------------------------
+Hay un solo archivo, "registro.txt", dentro de la carpeta Fotos del
+disco. Es texto plano y se abre con el Bloc de notas. Cada respaldo
+agrega su bloque AL PRINCIPIO, así que el más reciente siempre queda
+arriba y los anteriores van quedando debajo.
+
+Cada bloque contiene el resumen, más la lista de archivos que ya estaban
+en el disco y la de los que dieron error. Los copiados sin problemas
+solo se cuentan; no se listan uno por uno.
+
+Ejemplo:
+
+    ==================================================
+    Respaldo del 13-10-2026 20:15
+    ==================================================
+    Origen                 : C:\Users\...\OneDrive\Imágenes\Álbum de cámara
+    Borrar de OneDrive     : Sí
+    Archivos revisados     : 152
+    Copiados y verificados : 148
+    Ya estaban en el disco : 3
+    Borrados de OneDrive   : 151
+    Errores                : 1
+    Archivos que ya estaban en el disco:
+      - IMG_20261001_101500.jpg -> E:\Fotos\2026\10\IMG_20261001_101500.jpg
+    Archivos con error (siguen en OneDrive):
+      - VID_20261003_201500.mp4: la copia no coincide con el original
+
+
+7. RECOMENDACIONES
+------------------
+- Primera prueba: usa pocas fotos y responde N a la pregunta de borrar.
+  Revisa que todo haya quedado bien en el disco y en registro.txt.
+
+- Si borras de OneDrive, el disco pasa a ser la ÚNICA copia de esas
+  fotos (después de los 30 días de papelera). Los discos fallan. Lo ideal
+  es seguir la regla 3-2-1: 3 copias, en 2 medios distintos, 1 fuera de
+  casa. Por ejemplo, un segundo disco o mantener una copia en la nube.
+
+- Si no borras de OneDrive, cada respaldo vuelve a revisar todo lo
+  acumulado. No se duplica nada, pero cada vez se demora más.
+
+- Si un archivo da error, basta con volver a ejecutar el script;
+  normalmente se copia bien en el segundo intento.
+
+
+8. PROBLEMAS FRECUENTES
+-----------------------
+"No encontré la carpeta de carga de cámara de OneDrive"
+    -> Revisa que OneDrive esté instalado en el PC, con sesión iniciada
+       y sincronizando, y que la carga de cámara del teléfono haya subido
+       al menos una foto.
+
+"No encontré ningún disco externo conectado"
+    -> Conecta el disco, espera a que aparezca en "Este equipo" y vuelve
+       a ejecutar.
+
+"No hay espacio suficiente en el disco"
+    -> Libera espacio en el disco o usa otro.
+
+"No hay fotos ni videos nuevos en OneDrive"
+    -> No hay nada que respaldar: o ya se respaldó y se borró, o el
+       teléfono aún no ha subido nada.
+
+Al hacer doble clic en el .bat se abre y se cierra de inmediato
+    -> Revisa que el .ps1 esté en la misma carpeta y que se llame
+       exactamente "respaldar-fotos.ps1".
+
+Windows muestra "Windows protegió su PC" (SmartScreen)
+    -> Pasa con archivos descargados. Clic en "Más información" ->
+       "Ejecutar de todas formas". También puedes hacer clic derecho en
+       cada archivo -> Propiedades -> marcar "Desbloquear" -> Aceptar.

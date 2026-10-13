@@ -1,13 +1,13 @@
 ﻿# =====================================================================
 #  respaldar-fotos.ps1
-#  Mueve fotos y videos desde OneDrive (carga de cámara del teléfono)
+#  Copia fotos y videos desde OneDrive (carga de cámara del teléfono)
 #  al disco externo, ordenados en carpetas Año\Mes.
-#  Cada archivo se verifica (huella SHA-256) antes de borrarlo del origen.
+#  Cada copia se verifica (huella SHA-256). Al iniciar, el script pregunta
+#  si además quieres borrar de OneDrive lo que quedó respaldado.
 # =====================================================================
 
 # ========================= CONFIGURACIÓN =============================
-$Destino      = "E:\Fotos"   # Carpeta raíz en el disco externo (cambia la letra si corresponde)
-$BorrarOrigen = $true        # $false = solo copia, no borra nada de OneDrive
+$CarpetaEnDisco = "Fotos"   # Nombre de la carpeta que se crea en el disco elegido
 # =====================================================================
 
 $ErrorActionPreference = "Stop"
@@ -46,11 +46,49 @@ try {
         throw "No encontré la carpeta de carga de cámara de OneDrive. Revisa que OneDrive esté instalado y sincronizando."
     }
 
-    # ---- 2. Disco de destino ----
-    $unidad = Split-Path -Qualifier $Destino
-    if (-not (Test-Path -LiteralPath "$unidad\")) {
-        throw "El disco $unidad no está conectado. Conéctalo (o cambia la letra en la configuración del script)."
+    # ---- 2. Disco de destino (se elige de una lista) ----
+    $sistema = $env:SystemDrive.TrimEnd(':')
+
+    # Qué letras corresponden a discos conectados por USB
+    $letrasUsb = @{}
+    try {
+        Get-Partition -ErrorAction Stop | Where-Object { $_.DriveLetter } | ForEach-Object {
+            $disco = $_ | Get-Disk -ErrorAction Stop
+            if ($disco.BusType -eq 'USB') { $letrasUsb[[string]$_.DriveLetter] = $true }
+        }
+    } catch { }
+
+    # Todas las unidades con letra, excepto la del sistema (C:)
+    $unidades = @(Get-Volume | Where-Object {
+                    $_.DriveLetter -and ([string]$_.DriveLetter -ne $sistema) -and
+                    ($_.DriveType -eq 'Fixed' -or $_.DriveType -eq 'Removable') -and $_.Size -gt 0
+                  } |
+                  Sort-Object @{ Expression = { -not $letrasUsb.ContainsKey([string]$_.DriveLetter) } }, DriveLetter)
+
+    if ($unidades.Count -eq 0) {
+        throw "No encontré ningún disco externo conectado. Conecta el disco y vuelve a ejecutar."
     }
+
+    Write-Host ""
+    Write-Host "Discos disponibles:"
+    for ($k = 0; $k -lt $unidades.Count; $k++) {
+        $v = $unidades[$k]
+        $letra    = [string]$v.DriveLetter
+        $nombre   = if ($v.FileSystemLabel) { $v.FileSystemLabel } else { "(sin nombre)" }
+        $tipo     = if ($letrasUsb.ContainsKey($letra)) { "USB" } elseif ($v.DriveType -eq 'Removable') { "extraíble" } else { "interno" }
+        $tieneRespaldo = if (Test-Path -LiteralPath "${letra}:\$CarpetaEnDisco") { "  <- ya tiene la carpeta $CarpetaEnDisco" } else { "" }
+        Write-Host ("  [{0}] {1}:  {2}  ({3})  {4:N0} GB, {5:N0} GB libres{6}" -f
+                    ($k + 1), $letra, $nombre, $tipo, ($v.Size / 1GB), ($v.SizeRemaining / 1GB), $tieneRespaldo)
+    }
+
+    $eleccion = Read-Host "`nElige el número del disco (Enter = 1)"
+    if ([string]::IsNullOrWhiteSpace($eleccion)) { $eleccion = "1" }
+    $num = 0
+    if (-not [int]::TryParse($eleccion, [ref]$num) -or $num -lt 1 -or $num -gt $unidades.Count) {
+        throw "Opción no válida: $eleccion"
+    }
+    $unidad  = "$([string]$unidades[$num - 1].DriveLetter):"
+    $Destino = Join-Path "$unidad\" $CarpetaEnDisco
     New-Item -ItemType Directory -Force -Path $Destino | Out-Null
 
     # ---- 3. Archivos a respaldar ----
@@ -70,25 +108,29 @@ try {
     Write-Host "Origen : $Origen"
     Write-Host "Destino: $Destino"
     Write-Host "Archivos encontrados: $total ($gb GB)"
-    if ($BorrarOrigen) {
-        Write-Host "Al terminar, los archivos verificados se BORRARÁN de OneDrive" -ForegroundColor Yellow
-        Write-Host "(quedan 30 días en la papelera de OneDrive por si acaso)." -ForegroundColor Yellow
-    } else {
-        Write-Host "Modo solo copia: no se borrará nada de OneDrive."
-    }
     if ($bytes -gt $libre) {
         throw ("No hay espacio suficiente en el disco: se necesitan $gb GB y hay {0:N2} GB libres." -f ($libre / 1GB))
     }
 
-    $resp = Read-Host "`n¿Continuar? (S/N)"
+    $resp = Read-Host "`n¿Continuar con el respaldo? (S/N)"
     if ($resp -notmatch '^[sS]') { Write-Host "Cancelado."; return }
 
-    # ---- 4. Copiar, verificar y (opcionalmente) borrar ----
-    $log = Join-Path $Destino ("registro_" + (Get-Date -Format "yyyy-MM-dd_HHmmss") + ".txt")
-    function Registrar($texto) { Add-Content -LiteralPath $log -Value $texto -Encoding UTF8 }
-    Registrar "Respaldo iniciado $(Get-Date) | Origen: $Origen"
+    Write-Host ""
+    Write-Host "¿Quieres BORRAR de OneDrive los archivos que queden respaldados y verificados?"
+    Write-Host "Solo se borran los de este respaldo; lo demás no se toca. Quedan 30 días en la papelera de OneDrive."
+    $resp = Read-Host "Borrar de OneDrive (S/N, por defecto N)"
+    $BorrarOrigen = $resp -match '^[sS]'
+    if ($BorrarOrigen) {
+        Write-Host "OK: se copiará y luego se borrará de OneDrive lo verificado." -ForegroundColor Yellow
+    } else {
+        Write-Host "OK: solo se copiará; OneDrive queda intacto." -ForegroundColor Green
+    }
 
-    $copiados = 0; $yaExistian = 0; $errores = 0; $i = 0
+    # ---- 4. Copiar, verificar y (opcionalmente) borrar ----
+    $inicio = Get-Date
+    $listaErrores     = New-Object System.Collections.Generic.List[string]
+    $listaExistentes  = New-Object System.Collections.Generic.List[string]
+    $copiados = 0; $yaExistian = 0; $borrados = 0; $errores = 0; $i = 0
 
     foreach ($f in $archivos) {
         $i++
@@ -114,7 +156,7 @@ try {
 
             if ($yaEstaba) {
                 $yaExistian++
-                Registrar "YA EXISTÍA  $($f.Name) -> $dest"
+                $listaExistentes.Add("  - $($f.Name) -> $dest")
             } else {
                 Copy-Item -LiteralPath $f.FullName -Destination $dest
                 if ((Get-Huella $dest) -ne $huellaOrigen) {
@@ -122,32 +164,56 @@ try {
                     throw "la copia no coincide con el original"
                 }
                 $copiados++
-                Registrar "COPIADO     $($f.Name) -> $dest"
             }
 
             # Solo se borra si la copia en el disco está verificada
-            if ($BorrarOrigen) { Remove-Item -LiteralPath $f.FullName -Force }
+            if ($BorrarOrigen) { Remove-Item -LiteralPath $f.FullName -Force; $borrados++ }
         }
         catch {
             $errores++
-            Registrar "ERROR       $($f.Name): $($_.Exception.Message)"
+            $listaErrores.Add("  - $($f.Name): $($_.Exception.Message)")
             Write-Host "Error con $($f.Name): $($_.Exception.Message) (se deja en OneDrive)" -ForegroundColor Red
         }
     }
     Write-Progress -Activity "Respaldando fotos y videos" -Completed
 
-    # ---- 5. Resumen ----
-    Registrar "Fin $(Get-Date) | Copiados: $copiados | Ya existían: $yaExistian | Errores: $errores"
+    # ---- 5. Registro: un solo archivo, el respaldo más reciente queda arriba ----
+    $log = Join-Path $Destino "registro.txt"
+    $bloque = New-Object System.Collections.Generic.List[string]
+    $bloque.Add("==================================================")
+    $bloque.Add("Respaldo del $($inicio.ToString('dd-MM-yyyy HH:mm'))")
+    $bloque.Add("==================================================")
+    $bloque.Add("Origen                 : $Origen")
+    $bloque.Add("Borrar de OneDrive     : $(if ($BorrarOrigen) {'Sí'} else {'No'})")
+    $bloque.Add("Archivos revisados     : $total")
+    $bloque.Add("Copiados y verificados : $copiados")
+    $bloque.Add("Ya estaban en el disco : $yaExistian")
+    if ($BorrarOrigen) { $bloque.Add("Borrados de OneDrive   : $borrados") }
+    $bloque.Add("Errores                : $errores")
+    if ($yaExistian -gt 0) {
+        $bloque.Add("Archivos que ya estaban en el disco:")
+        $bloque.AddRange($listaExistentes)
+    }
+    if ($errores -gt 0) {
+        $bloque.Add("Archivos con error (siguen en OneDrive):")
+        $bloque.AddRange($listaErrores)
+    }
+    $bloque.Add("")
+    $anterior = @()
+    if (Test-Path -LiteralPath $log) { $anterior = @(Get-Content -LiteralPath $log -Encoding UTF8) }
+    Set-Content -LiteralPath $log -Value (@($bloque) + $anterior) -Encoding UTF8
+
     Write-Host ""
     Write-Host "=== Listo ===" -ForegroundColor Green
     Write-Host "Copiados y verificados : $copiados"
     Write-Host "Ya estaban en el disco : $yaExistian"
+    if ($BorrarOrigen) { Write-Host "Borrados de OneDrive   : $borrados" }
     if ($errores -gt 0) {
         Write-Host "Con errores (siguen en OneDrive): $errores" -ForegroundColor Red
     } else {
         Write-Host "Errores                : 0"
     }
-    Write-Host "Registro guardado en: $log"
+    Write-Host "Registro actualizado en: $log"
 }
 catch {
     Write-Host ""
