@@ -29,6 +29,15 @@ function Get-Huella($ruta) {
     return (Get-FileHash -LiteralPath $ruta -Algorithm SHA256).Hash
 }
 
+function Liberar-Espacio($ruta) {
+    # Deja el archivo de OneDrive "solo en la nube" (equivale a "Liberar espacio"),
+    # para que el PC sea solo intermediario y no guarde copias.
+    try {
+        & attrib.exe +U -P "$ruta" | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } catch { return $false }
+}
+
 try {
     Write-Host "=== Respaldo de fotos: OneDrive -> disco externo ===" -ForegroundColor Cyan
 
@@ -139,7 +148,7 @@ try {
     $inicio = Get-Date
     $listaErrores     = New-Object System.Collections.Generic.List[string]
     $listaExistentes  = New-Object System.Collections.Generic.List[string]
-    $copiados = 0; $yaExistian = 0; $borrados = 0; $errores = 0; $i = 0
+    $copiados = 0; $yaExistian = 0; $borrados = 0; $liberados = 0; $noLiberados = 0; $errores = 0; $i = 0
 
     foreach ($f in $archivos) {
         $i++
@@ -150,10 +159,6 @@ try {
             $fecha   = Get-FechaArchivo $f
             $carpeta = Join-Path $Destino ("{0:yyyy}\{0:MM}" -f $fecha)
             New-Item -ItemType Directory -Force -Path $carpeta | Out-Null
-
-            # ¿El archivo estaba "solo en la nube"? (OneDrive lo descargará al leerlo)
-            $eraSoloNube = (([int64]$f.Attributes -band 0x400000) -ne 0) -or
-                           (($f.Attributes -band [IO.FileAttributes]::Offline) -ne 0)
 
             $huellaOrigen = Get-Huella $f.FullName   # (descarga el archivo si OneDrive lo tenía solo en la nube)
 
@@ -184,12 +189,14 @@ try {
             if ($borrar) {
                 Remove-Item -LiteralPath $f.FullName -Force
                 $borrados++
-            } elseif ($eraSoloNube) {
-                # Se queda en OneDrive: lo vuelve a dejar "solo en la nube" para no ocupar espacio en el PC
-                try { & attrib.exe +U -P "$($f.FullName)" | Out-Null } catch { }
+            } else {
+                # Se queda en OneDrive: se libera el espacio en el PC (queda solo en la nube)
+                if (Liberar-Espacio $f.FullName) { $liberados++ } else { $noLiberados++ }
             }
         }
         catch {
+            # Aunque haya fallado, el archivo pudo quedar descargado: se libera el espacio igual
+            if (Test-Path -LiteralPath $f.FullName) { if (Liberar-Espacio $f.FullName) { $liberados++ } else { $noLiberados++ } }
             $errores++
             $listaErrores.Add("  - $($f.Name): $($_.Exception.Message)")
             Write-Host "Error con $($f.Name): $($_.Exception.Message) (se deja en OneDrive)" -ForegroundColor Red
@@ -209,6 +216,8 @@ try {
     $bloque.Add("Copiados y verificados : $copiados")
     $bloque.Add("Ya estaban en el disco : $yaExistian")
     if ($BorrarOrigen) { $bloque.Add("Borrados de OneDrive   : $borrados") }
+    $bloque.Add("Liberados del PC       : $liberados (siguen en OneDrive, solo en la nube)")
+    if ($noLiberados -gt 0) { $bloque.Add("Sin poder liberar      : $noLiberados (usa 'Liberar espacio' en OneDrive)") }
     $bloque.Add("Errores                : $errores")
     if ($yaExistian -gt 0) {
         $bloque.Add("Archivos que ya estaban en el disco:")
@@ -228,6 +237,8 @@ try {
     Write-Host "Copiados y verificados : $copiados"
     Write-Host "Ya estaban en el disco : $yaExistian"
     if ($BorrarOrigen) { Write-Host "Borrados de OneDrive   : $borrados" }
+    Write-Host "Liberados del PC       : $liberados (siguen en OneDrive, solo en la nube)"
+    if ($noLiberados -gt 0) { Write-Host "Sin poder liberar      : $noLiberados (selecciona los archivos en OneDrive -> 'Liberar espacio')" -ForegroundColor Yellow }
     if ($errores -gt 0) {
         Write-Host "Con errores (siguen en OneDrive): $errores" -ForegroundColor Red
     } else {

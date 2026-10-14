@@ -130,12 +130,19 @@ f) Descarga desde OneDrive: OneDrive suele guardar las fotos "solo en la
    nube" (ícono de nube). Para copiarlas, el script tiene que leerlas, y
    eso hace que OneDrive las descargue a la carpeta de OneDrive del PC
    (por eso aparece la notificación "PowerShell está descargando...").
-   Desde ahí se copian al disco externo. No quedan descargadas:
-   - si se borran de OneDrive, desaparecen también del PC;
-   - si se quedan en OneDrive, el script las vuelve a dejar "solo en la
-     nube" para liberar el espacio en el PC.
+   Desde ahí se copian al disco externo. El PC es SOLO intermediario:
+   apenas termina cada archivo, el script libera su espacio.
+   - Si se borra de OneDrive, desaparece también del PC.
+   - Si se queda en OneDrive (porque elegiste no borrar, o porque dio
+     error), el script lo deja "solo en la nube", igual que la opción
+     "Liberar espacio" de OneDrive. Esto pasa SIEMPRE, sin preguntar,
+     incluso con fotos que ya estaban descargadas en el PC antes.
    Como se procesan de a una, solo se necesita espacio libre en el PC
    para el archivo que se está copiando en ese momento.
+   El resumen indica cuántos archivos se liberaron. Si alguno no se pudo
+   liberar, aparece como "Sin poder liberar": en ese caso, selecciona
+   los archivos (no la carpeta) en la carpeta de OneDrive, clic derecho
+   -> "Liberar espacio".
 
 g) Si un archivo falla, el script sigue con los demás. El que falló
    queda en OneDrive y se anota en el registro.
