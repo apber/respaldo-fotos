@@ -76,6 +76,14 @@ que se ejecuta.
    S          -> copia y luego borra de OneDrive lo que quedó respaldado.
    N o Enter  -> solo copia; OneDrive queda intacto.
 
+   Si respondiste S, hace una segunda pregunta:
+   "¿Borrar de OneDrive también esos? (S/N, por defecto N)"
+   Se refiere a los archivos que YA estaban en el disco, idénticos,
+   de un respaldo anterior.
+   S          -> también se borran de OneDrive.
+   N o Enter  -> esos se quedan en OneDrive; solo se borra lo que se
+                 acaba de copiar.
+
 8) Muestra una barra de progreso y, al final, un resumen en pantalla.
    Presiona Enter para cerrar la ventana.
 
@@ -108,15 +116,28 @@ d) Duplicados:
      se guarda con un sufijo: IMG_..._1.jpg, IMG_..._2.jpg, etc.
 
 e) Borrado (solo si respondiste S): se borran de OneDrive únicamente los
-   archivos de ESA ejecución que quedaron verificados en el disco, ya sea
-   porque se acaban de copiar o porque ya estaban ahí idénticos. Nunca
-   se borran:
+   archivos de ESA ejecución que quedaron verificados en el disco:
+   - los que se acaban de copiar, siempre;
+   - los que ya estaban en el disco idénticos, solo si respondiste S a
+     la segunda pregunta.
+   Nunca se borran:
    - los archivos que dieron error,
    - las fotos que lleguen mientras el script está corriendo,
    - nada fuera de la carpeta de carga de cámara.
    Lo borrado queda 30 días en la papelera de OneDrive.
 
-f) Si un archivo falla, el script sigue con los demás. El que falló
+f) Descarga desde OneDrive: OneDrive suele guardar las fotos "solo en la
+   nube" (ícono de nube). Para copiarlas, el script tiene que leerlas, y
+   eso hace que OneDrive las descargue a la carpeta de OneDrive del PC
+   (por eso aparece la notificación "PowerShell está descargando...").
+   Desde ahí se copian al disco externo. No quedan descargadas:
+   - si se borran de OneDrive, desaparecen también del PC;
+   - si se quedan en OneDrive, el script las vuelve a dejar "solo en la
+     nube" para liberar el espacio en el PC.
+   Como se procesan de a una, solo se necesita espacio libre en el PC
+   para el archivo que se está copiando en ese momento.
+
+g) Si un archivo falla, el script sigue con los demás. El que falló
    queda en OneDrive y se anota en el registro.
 
 
@@ -161,6 +182,15 @@ Ejemplo:
 
 - Si no borras de OneDrive, cada respaldo vuelve a revisar todo lo
   acumulado. No se duplica nada, pero cada vez se demora más.
+
+- Puedes guardar otras carpetas (respaldos antiguos, por ejemplo) dentro
+  de la carpeta Fotos del disco. El script nunca modifica ni borra nada
+  del disco. Solo ten en cuenta que, para detectar duplicados, mira
+  únicamente la carpeta Año\Mes que corresponde a cada foto: si una foto
+  ya está en otra carpeta (por ejemplo "Fotos\Viaje 2024"), no la
+  reconoce como repetida y la copia de nuevo. También conviene no usar
+  nombres de 4 dígitos (como "2024") para esas carpetas antiguas, para
+  no mezclarlas con las que crea el script.
 
 - Si un archivo da error, basta con volver a ejecutar el script;
   normalmente se copia bien en el segundo intento.

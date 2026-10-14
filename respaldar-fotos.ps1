@@ -120,8 +120,17 @@ try {
     Write-Host "Solo se borran los de este respaldo; lo demás no se toca. Quedan 30 días en la papelera de OneDrive."
     $resp = Read-Host "Borrar de OneDrive (S/N, por defecto N)"
     $BorrarOrigen = $resp -match '^[sS]'
+    $BorrarExistentes = $false
     if ($BorrarOrigen) {
-        Write-Host "OK: se copiará y luego se borrará de OneDrive lo verificado." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Algunos archivos de OneDrive pueden estar YA en el disco (idénticos, de un respaldo anterior)."
+        $resp = Read-Host "¿Borrar de OneDrive también esos? (S/N, por defecto N)"
+        $BorrarExistentes = $resp -match '^[sS]'
+        if ($BorrarExistentes) {
+            Write-Host "OK: se borrará de OneDrive lo recién copiado y lo que ya estaba en el disco." -ForegroundColor Yellow
+        } else {
+            Write-Host "OK: se borrará de OneDrive solo lo recién copiado; lo que ya estaba en el disco se queda en OneDrive." -ForegroundColor Yellow
+        }
     } else {
         Write-Host "OK: solo se copiará; OneDrive queda intacto." -ForegroundColor Green
     }
@@ -141,6 +150,10 @@ try {
             $fecha   = Get-FechaArchivo $f
             $carpeta = Join-Path $Destino ("{0:yyyy}\{0:MM}" -f $fecha)
             New-Item -ItemType Directory -Force -Path $carpeta | Out-Null
+
+            # ¿El archivo estaba "solo en la nube"? (OneDrive lo descargará al leerlo)
+            $eraSoloNube = (([int64]$f.Attributes -band 0x400000) -ne 0) -or
+                           (($f.Attributes -band [IO.FileAttributes]::Offline) -ne 0)
 
             $huellaOrigen = Get-Huella $f.FullName   # (descarga el archivo si OneDrive lo tenía solo en la nube)
 
@@ -167,7 +180,14 @@ try {
             }
 
             # Solo se borra si la copia en el disco está verificada
-            if ($BorrarOrigen) { Remove-Item -LiteralPath $f.FullName -Force; $borrados++ }
+            $borrar = $BorrarOrigen -and ((-not $yaEstaba) -or $BorrarExistentes)
+            if ($borrar) {
+                Remove-Item -LiteralPath $f.FullName -Force
+                $borrados++
+            } elseif ($eraSoloNube) {
+                # Se queda en OneDrive: lo vuelve a dejar "solo en la nube" para no ocupar espacio en el PC
+                try { & attrib.exe +U -P "$($f.FullName)" | Out-Null } catch { }
+            }
         }
         catch {
             $errores++
@@ -184,7 +204,7 @@ try {
     $bloque.Add("Respaldo del $($inicio.ToString('dd-MM-yyyy HH:mm'))")
     $bloque.Add("==================================================")
     $bloque.Add("Origen                 : $Origen")
-    $bloque.Add("Borrar de OneDrive     : $(if ($BorrarOrigen) {'Sí'} else {'No'})")
+    $bloque.Add("Borrar de OneDrive     : $(if (-not $BorrarOrigen) {'No'} elseif ($BorrarExistentes) {'Sí, incluidos los que ya estaban en el disco'} else {'Sí, solo los recién copiados'})")
     $bloque.Add("Archivos revisados     : $total")
     $bloque.Add("Copiados y verificados : $copiados")
     $bloque.Add("Ya estaban en el disco : $yaExistian")
